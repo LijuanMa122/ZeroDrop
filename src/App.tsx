@@ -559,10 +559,27 @@ function App() {
                 {/* File Upload Area */}
                 <div>
                   <FileUploader
-                    handleChange={(f: File) => setFile(f)}
+                    handleChange={(f: File | File[]) => {
+                      if (Array.isArray(f)) {
+                        setFile(f[0]); // 如果是数组，取第一个
+                      } else {
+                       setFile(f);    // 如果是单个文件，直接存
+                      }
+                    }}
                     name="file"
                     types={["JPG", "PNG", "GIF", "PDF", "ZIP", "MP4", "MOV"]}
                   >
+                    <FileUploader
+  handleChange={(f: File | File[]) => {
+    if (Array.isArray(f)) {
+      setFile(f[0]); // 如果是数组，取第一个
+    } else {
+      setFile(f);    // 如果是单个文件，直接存
+    }
+  }}
+  name="file"
+  types={["JPG", "PNG", "GIF", "PDF", "ZIP", "MP4", "MOV"]}
+></FileUploader>
                     <div 
                       className={`w-full h-28 border-2 border-dashed rounded-xl flex flex-col justify-center items-center cursor-pointer transition-all ${file ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                     >

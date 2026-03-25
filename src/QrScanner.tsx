@@ -24,8 +24,8 @@ const QrScanner = ({ onScanSuccess, onCancel }: QrScannerProps) => {
           onScanSuccess(decodedText);
         }).catch(console.error);
       },
-      (error) => {
-        // 忽略持续扫描时的常规未找到二维码的报错
+      (_error) => {
+  // Ignore standard scanning errors
       }
     );
 
@@ -41,7 +41,7 @@ const QrScanner = ({ onScanSuccess, onCancel }: QrScannerProps) => {
           Scan Friend's QR Code
         </h3>
         
-        {/* 🚨 关键修复：去掉了 bg-black，改为 bg-white，确保库自带的授权按钮清晰可见 */}
+        {}
         <div 
           id="qr-reader" 
           className="w-full rounded-xl overflow-hidden border border-gray-300 dark:border-gray-600 bg-white"
