@@ -1,135 +1,175 @@
 import { useState, useRef } from 'react';
-import Cropper from 'react-cropper';
-import './assets/cropper.css';
+import "./assets/cropper.css";
+import Cropper from "react-cropper";
 
-function IdPhotoTool() {
+export default function IdPhotoTool() {
   const [image, setImage] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const cropperRef = useRef<HTMLImageElement>(null);
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => setImage(reader.result as string);
-      reader.readAsDataURL(file);
+  const [croppedImage, setCroppedImage] = useState<string | null>(null);
+  const cropperRef = useRef<any>(null);
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    let files;
+    if (e.target) {
+      files = e.target.files;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImage(reader.result as string);
+      setCroppedImage(null); // Reset cropped image on new upload
+    };
+    if (files && files.length > 0) {
+      reader.readAsDataURL(files[0]);
     }
   };
 
-  const generateSheet = () => {
-    if (!image || !cropperRef.current) return;
-    
-    setIsProcessing(true);
-    try {
-      // Get cropped canvas
-      const croppedCanvas = (cropperRef.current as any).cropper.getCroppedCanvas({
-        width: 354, // Standard 1-inch photo at 300 DPI
-        height: 472, // Standard 1-inch photo at 300 DPI
+  const getCropData = () => {
+    if (typeof cropperRef.current?.cropper !== "undefined") {
+      const croppedCanvas = cropperRef.current?.cropper.getCroppedCanvas({
+        width: 354,
+        height: 472,
+        fillColor: '#fff',
+        imageSmoothingEnabled: true,
+        imageSmoothingQuality: 'high',
       });
-
-      // Create a 6x4 inch canvas at 300 DPI
-      const sheetCanvas = document.createElement('canvas');
-      sheetCanvas.width = 1800;
-      sheetCanvas.height = 1200;
-      const ctx = sheetCanvas.getContext('2d');
-      if (!ctx) return;
-
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, sheetCanvas.width, sheetCanvas.height);
-
-      // Draw 8 photos
-      const photoWidth = croppedCanvas.width;
-      const photoHeight = croppedCanvas.height;
-      const padding = 20;
-
-      const x_offset = 20;
-      const y_offset = 20;
-
-      for (let i = 0; i < 2; i++) {
-        for (let j = 0; j < 4; j++) {
-          const x = j * (photoWidth + padding) + x_offset;
-          const y = i * (photoHeight + padding) + y_offset;
-          ctx.drawImage(croppedCanvas, x, y);
-        }
-      }
-
-      // Download
-      const link = document.createElement('a');
-      link.href = sheetCanvas.toDataURL('image/jpeg');
-      link.download = 'id_photo_sheet.jpg';
-      link.click();
-
-    } catch (error) {
-      console.error(error);
-      alert('An error occurred while generating the photo sheet.');
-    } finally {
-      setIsProcessing(false);
+      
+      generatePrintSheet(croppedCanvas);
     }
   };
+
+  const generatePrintSheet = (sourceCanvas: HTMLCanvasElement) => {
+    const sheetCanvas = document.createElement('canvas');
+    // 4x6 inch at 300 DPI is 1800x1200
+    sheetCanvas.width = 1800;
+    sheetCanvas.height = 1200;
+    const ctx = sheetCanvas.getContext('2d');
+    
+    if (!ctx) return;
+
+    // Fill white background
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, sheetCanvas.width, sheetCanvas.height);
+
+    // Layout configuration: 2 rows, 4 columns
+    const imgWidth = 354;
+    const imgHeight = 472;
+    const marginX = (1800 - (4 * imgWidth)) / 5;
+    const marginY = (1200 - (2 * imgHeight)) / 3;
+
+    for (let row = 0; row < 2; row++) {
+      for (let col = 0; col < 4; col++) {
+        const x = marginX + col * (imgWidth + marginX);
+        const y = marginY + row * (imgHeight + marginY);
+        ctx.drawImage(sourceCanvas, x, y, imgWidth, imgHeight);
+        
+        // Add a subtle cutting guide border
+        ctx.strokeStyle = '#EEEEEE';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, imgWidth, imgHeight);
+      }
+    }
+
+    setCroppedImage(sheetCanvas.toDataURL("image/jpeg", 0.95));
+  };
+
+  // Helper controls for the cropper
+  const rotate = () => cropperRef.current?.cropper.rotate(90);
+  const zoomIn = () => cropperRef.current?.cropper.zoom(0.1);
+  const zoomOut = () => cropperRef.current?.cropper.zoom(-0.1);
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div className="flex flex-col gap-6 animate-fade-in">
       
-      {/* Left Column: Controls */}
-      <div className="md:col-span-1 flex flex-col gap-6">
-        <div>
-          <label className="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-            {image ? '3. Adjust & Generate' : '1. Upload Photo'}
-          </label>
-          <input 
-            type="file" 
-            accept="image/*"
-            onChange={handleImageChange}
-            className="block w-full text-sm text-gray-500 dark:text-gray-400
-              file:mr-4 file:py-2 file:px-4
-              file:rounded-full file:border-0
-              file:text-sm file:font-semibold
-              file:bg-blue-50 file:text-blue-700 dark:file:bg-blue-900/30 dark:file:text-blue-400
-              hover:file:bg-blue-100 cursor-pointer" 
-          />
-        </div>
-        
-        {image && (
-          <button 
-            onClick={generateSheet}
-            disabled={isProcessing}
-            className="w-full py-3 bg-teal-600 text-white rounded-xl font-bold hover:bg-teal-700 transition shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed"
-          >
-            {isProcessing ? 'Generating...' : 'Generate & Download'}
-          </button>
-        )}
+      {/* Step 1: Upload */}
+      <div className="bg-gray-50 dark:bg-gray-900/50 p-5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm backdrop-blur-sm">
+        <h2 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+          <span className="bg-blue-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span> 
+          Upload Portrait
+        </h2>
+        <input 
+          type="file" 
+          accept="image/png, image/jpeg, image/jpg"
+          onChange={handleFileChange}
+          className="block w-full text-sm text-gray-500 dark:text-gray-400
+            file:mr-4 file:py-2.5 file:px-5
+            file:rounded-xl file:border-0
+            file:text-sm file:font-bold file:transition-colors
+            file:bg-blue-50 file:text-blue-700 dark:file:bg-blue-900/30 dark:file:text-blue-400
+            hover:file:bg-blue-100 dark:hover:file:bg-blue-900/50 cursor-pointer"
+        />
       </div>
 
-      {/* Right Column: Cropper */}
-      <div className="md:col-span-2">
-        {image ? (
-          <div>
-            <label className="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">2. Crop to Fit (Standard 1-inch)</label>
-            <div className="bg-gray-200 dark:bg-gray-800 rounded-lg overflow-hidden">
+      {/* Step 2: Crop */}
+      <div className={`transition-all duration-500 ${image ? 'opacity-100 translate-y-0' : 'opacity-40 pointer-events-none translate-y-2'}`}>
+        <div className="bg-gray-50 dark:bg-gray-900/50 p-5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm backdrop-blur-sm flex flex-col gap-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+              <span className="bg-blue-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span> 
+              Crop & Align
+            </h2>
+            
+            {/* Toolbar */}
+            <div className="flex gap-2">
+              <button onClick={zoomOut} className="p-2 text-xs bg-gray-200 dark:bg-gray-800 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition" title="Zoom Out">➖</button>
+              <button onClick={zoomIn} className="p-2 text-xs bg-gray-200 dark:bg-gray-800 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition" title="Zoom In">➕</button>
+              <button onClick={rotate} className="p-2 text-xs bg-gray-200 dark:bg-gray-800 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition" title="Rotate">🔃</button>
+            </div>
+          </div>
+
+          <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-black/10 dark:bg-black/40">
+            {image ? (
               <Cropper
                 ref={cropperRef}
                 src={image}
-                style={{ height: 400, width: '100%' }}
+                style={{ height: 400, width: "100%" }}
                 aspectRatio={354 / 472}
                 guides={true}
-                viewMode={2}
-                autoCropArea={1}
+                viewMode={1}
+                dragMode="move"
                 background={false}
+                responsive={true}
+                checkOrientation={false}
               />
-            </div>
+            ) : (
+              <div className="h-[400px] flex items-center justify-center text-gray-400 font-mono text-sm">
+                Waiting for image...
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800/50 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700">
-            <div className="text-center text-gray-400">
-              <span className="text-5xl">🖼️</span>
-              <p className="mt-2 font-semibold">Image Preview</p>
-              <p className="text-sm">Your photo will appear here to be cropped.</p>
-            </div>
-          </div>
-        )}
+
+          <button 
+            onClick={getCropData}
+            disabled={!image}
+            className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold hover:from-blue-700 hover:to-indigo-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Generate 4x6 Print Sheet
+          </button>
+        </div>
       </div>
+
+      {/* Step 3: Result */}
+      {croppedImage && (
+        <div className="bg-gray-50 dark:bg-gray-900/50 p-5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm backdrop-blur-sm animate-fade-in">
+          <h2 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+            <span className="bg-green-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">3</span> 
+            Ready to Print
+          </h2>
+          
+          <div className="border border-gray-200 dark:border-gray-700 p-2 rounded-xl bg-white dark:bg-gray-950 shadow-inner mb-4">
+            <img src={croppedImage} alt="Print Sheet Preview" className="w-full h-auto rounded-lg" />
+          </div>
+          
+          <a 
+            href={croppedImage} 
+            download="id_photo_sheet_4x6.jpg"
+            className="flex items-center justify-center gap-2 w-full py-3.5 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all shadow-md hover:shadow-lg"
+          >
+            <span>⬇️</span> Download High-Res Image
+          </a>
+          <p className="text-xs text-center text-gray-500 mt-3 font-mono">
+            Print on standard 4x6 inch photo paper at any kiosk.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
-
-export default IdPhotoTool;
