@@ -18,7 +18,7 @@ const SecretTextItem = ({ content }: { content: string }) => {
   const [actualContent, setActualContent] = useState(content);
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
+    let timer: ReturnType<typeof setTimeout>;
     if (revealed && timeLeft > 0 && !destroyed) {
       timer = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
     } else if (timeLeft === 0 && !destroyed) {
@@ -69,7 +69,7 @@ const SecretImageItem = ({ url, name }: { url: string; name: string }) => {
   const [releaseCount, setReleaseCount] = useState(0);
   
   const viewTimeRef = useRef(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const destroyImage = () => {
     setDestroyed(true);
@@ -559,7 +559,7 @@ function App() {
                 {/* File Upload Area */}
                 <div>
                   <FileUploader
-                    handleChange={setFile}
+                    handleChange={(f: File) => setFile(f)}
                     name="file"
                     types={["JPG", "PNG", "GIF", "PDF", "ZIP", "MP4", "MOV"]}
                   >
