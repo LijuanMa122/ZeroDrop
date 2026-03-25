@@ -1,9 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { Peer } from 'peerjs';
 import type { DataConnection } from 'peerjs';
 import { FileUploader } from "react-drag-drop-files";
+import { QRCodeSVG } from 'qrcode.react';
 import PdfTool from './PdfTool';
 import IdPhotoTool from './IdPhotoTool';
+
+const QrScanner = lazy(() => import('./QrScanner'));
 
 const CHUNK_SIZE = 64 * 1024; // 64KB for high-speed transfer
 
@@ -144,7 +147,6 @@ const SecretImageItem = ({ url, name }: { url: string; name: string }) => {
   );
 };
 
-
 // --- Main App Component ---
 function App() {
   const [myId, setMyId] = useState<string>('Connecting...');
@@ -163,12 +165,35 @@ function App() {
   const [burnAfterReading, setBurnAfterReading] = useState<boolean>(false);
   const [isSecretImage, setIsSecretImage] = useState<boolean>(false);
 
+  const [showQR, setShowQR] = useState<boolean>(false);
+  const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [qrTheme, setQrTheme] = useState({bgColor: '#ffffff', fgColor: '#000000'});
+
+  useEffect(() => {
+    if (showQR) {
+      const isDarkMode = document.documentElement.classList.contains('dark');
+      setQrTheme({
+        bgColor: isDarkMode ? '#1f2937' : '#ffffff',
+        fgColor: isDarkMode ? '#ffffff' : '#000000',
+      });
+    }
+  }, [showQR]);
+
   const peerInstance = useRef<Peer | null>(null);
   const connRef = useRef<DataConnection | null>(null);
   const handleDataRef = useRef<any>(null);
 
   const receiveBufferRef = useRef<ArrayBuffer[]>([]);
   const receivedCountRef = useRef<number>(0);
+
+  const handleScanSuccess = useCallback((decodedText: string) => {
+    setRemoteId(decodedText);
+    setIsScanning(false);
+  }, []);
+
+  const handleScanCancel = useCallback(() => {
+    setIsScanning(false);
+  }, []);
 
   useEffect(() => {
     handleDataRef.current = handleData;
@@ -188,7 +213,16 @@ function App() {
   }, [file]);
 
   useEffect(() => {
-    const peer = new Peer();
+    const peer = new Peer({
+  config: {
+    'iceServers': [
+      { urls: 'stun:stun.l.google.com:19302' }, 
+      { urls: 'stun:stun1.l.google.com:19302' }, 
+      { urls: 'stun:global.stun.twilio.com:3478' } 
+    ]
+  }
+});
+
     peer.on('open', (id) => setMyId(id));
 
     peer.on('connection', (conn) => {
@@ -387,179 +421,215 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-gray-200 flex items-center justify-center p-4">
-      <div className="w-full max-w-3xl mx-auto">
-        <div className="bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
-          <h1 className="text-3xl font-extrabold text-center mb-6 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
-            🛰️ ZeroDrop
-          </h1>
-          
-          <div className="mb-6 border-b border-gray-200 dark:border-gray-800">
-            <ul className="flex flex-wrap -mb-px text-sm font-medium text-center justify-center gap-4">
-                <li>
-                    <button onClick={() => setActiveTab('p2p')} className={`inline-block p-2 rounded-t-lg border-b-2 transition-all ${activeTab === 'p2p' ? 'text-blue-600 border-blue-600 font-bold' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>P2P Transfer</button>
-                </li>
-                <li>
-                    <button onClick={() => setActiveTab('pdf')} className={`inline-block p-2 rounded-t-lg border-b-2 transition-all ${activeTab === 'pdf' ? 'text-blue-600 border-blue-600 font-bold' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>PDF Tools</button>
-                </li>
-                <li>
-                    <button onClick={() => setActiveTab('idphoto')} className={`inline-block p-2 rounded-t-lg border-b-2 transition-all ${activeTab === 'idphoto' ? 'text-blue-600 border-blue-600 font-bold' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>ID Photo</button>
-                </li>
-            </ul>
+    <>
+      <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 text-white">Loading Scanner...</div>}>
+        {isScanning && (
+          <QrScanner
+            onScanSuccess={handleScanSuccess}
+            onCancel={handleScanCancel}
+          />
+        )}
+      </Suspense>
+
+      {showQR && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 backdrop-blur-sm" onClick={() => setShowQR(false)}>
+          <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-center mb-4 text-gray-800 dark:text-gray-200">Scan to Connect</h3>
+            <QRCodeSVG
+              value={myId}
+              size={256}
+              bgColor={qrTheme.bgColor}
+              fgColor={qrTheme.fgColor}
+              level={"L"}
+              includeMargin={true}
+            />
+            <p className="mt-4 text-xs text-gray-500 dark:text-gray-400 text-center break-all max-w-xs">{myId}</p>
           </div>
-          
-          {activeTab === 'p2p' && (
-            <div className="flex flex-col gap-4">
-              <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-xl flex items-center justify-between shadow-inner">
-                <span className="text-sm font-medium text-gray-500">Your ID:</span>
-                <span className="font-mono text-sm font-bold text-blue-600 dark:text-blue-400 select-all">{myId}</span>
-              </div>
+        </div>
+      )}
 
-              <div className="flex gap-2">
-                <input 
-                  type="text"
-                  placeholder="Paste Friend's ID here..."
-                  className="flex-1 p-3 border border-gray-300 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow text-sm font-mono"
-                  value={remoteId}
-                  onChange={e => setRemoteId(e.target.value)}
-                />
-                <button 
-                  onClick={() => handleConnection(() => {})}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-bold shadow-md hover:shadow-lg"
-                >
-                  Connect
-                </button>
-              </div>
-              
-              {progress > 0 && progress < 100 && (
-                <div className="mt-2 mb-2 animate-pulse">
-                    <div className="flex justify-between mb-1">
-                        <span className="text-xs font-bold text-blue-600">{transferMode === 'sending' ? 'Uploading...' : 'Downloading...'}</span>
-                        <span className="text-xs font-bold text-blue-600">{Math.round(progress)}%</span>
-                    </div>
-                    <div className="w-full bg-blue-100 rounded-full h-2 dark:bg-gray-700 overflow-hidden">
-                        <div className="bg-blue-600 h-2 rounded-full transition-all duration-75" style={{ width: `${progress}%` }}></div>
-                    </div>
-                </div>
-              )}
-
-              {/* Chat Log Window */}
-              <div className="h-72 overflow-y-auto bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 text-sm flex flex-col shadow-inner">
-                {log.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-2 opacity-50">
-                    <span className="text-4xl">💬</span>
-                    <p>No messages yet. Connect to a peer!</p>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-gray-200 flex items-center justify-center p-4">
+        <div className="w-full max-w-3xl mx-auto">
+          <div className="bg-white dark:bg-gray-900 shadow-xl rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
+            <h1 className="text-3xl font-extrabold text-center mb-6 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
+              🛰️ ZeroDrop
+            </h1>
+            
+            <div className="mb-6 border-b border-gray-200 dark:border-gray-800">
+              <ul className="flex flex-wrap -mb-px text-sm font-medium text-center justify-center gap-4">
+                  <li>
+                      <button onClick={() => setActiveTab('p2p')} className={`inline-block p-2 rounded-t-lg border-b-2 transition-all ${activeTab === 'p2p' ? 'text-blue-600 border-blue-600 font-bold' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>P2P Transfer</button>
+                  </li>
+                  <li>
+                      <button onClick={() => setActiveTab('pdf')} className={`inline-block p-2 rounded-t-lg border-b-2 transition-all ${activeTab === 'pdf' ? 'text-blue-600 border-blue-600 font-bold' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>PDF Tools</button>
+                  </li>
+                  <li>
+                      <button onClick={() => setActiveTab('idphoto')} className={`inline-block p-2 rounded-t-lg border-b-2 transition-all ${activeTab === 'idphoto' ? 'text-blue-600 border-blue-600 font-bold' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>ID Photo</button>
+                  </li>
+              </ul>
+            </div>
+            
+            {activeTab === 'p2p' && (
+              <div className="flex flex-col gap-4">
+                <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-xl flex items-center justify-between shadow-inner">
+                  <span className="text-sm font-medium text-gray-500">Your ID:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-bold text-blue-600 dark:text-blue-400 select-all">{myId}</span>
+                    <button onClick={() => setShowQR(true)} className="text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 transition" title="Show QR Code">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M4 3a1 1 0 00-1 1v2a1 1 0 001 1h2a1 1 0 001-1V4a1 1 0 00-1-1H4zM3 9a1 1 0 011-1h2a1 1 0 110 2H4a1 1 0 01-1-1zM4 13a1 1 0 00-1 1v2a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 00-1-1H4zM9 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zM9 9a1 1 0 00-1 1v2a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 00-1-1H9zM9 15a1 1 0 100 2h2a1 1 0 100-2H9zM15 3a1 1 0 100 2h2a1 1 0 100-2h-2zM13 9a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zM13 15a1 1 0 100 2h2a1 1 0 100-2h-2z" /></svg>
+                    </button>
                   </div>
-                ) : log.map(renderLog)}
-              </div>
+                </div>
 
-              {/* Message Input Area */}
-              <div className="flex flex-col gap-2">
                 <div className="flex gap-2">
                   <input 
                     type="text"
-                    placeholder={isSecretMessage ? "Type secret message..." : "Type a message..."}
-                    className={`flex-1 p-3 border rounded-xl focus:outline-none focus:ring-2 transition-all text-sm ${isSecretMessage ? 'border-red-500 bg-red-50 dark:bg-red-900/20 focus:ring-red-500' : 'border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-blue-500'}`}
-                    value={message}
-                    onChange={e => setMessage(e.target.value)}
-                    onKeyPress={e => e.key === 'Enter' && sendMessage()}
+                    placeholder="Paste Friend's ID here or Scan QR..."
+                    className="flex-1 p-3 border border-gray-300 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow text-sm font-mono"
+                    value={remoteId}
+                    onChange={e => setRemoteId(e.target.value)}
                   />
+                  <button onClick={() => setIsScanning(true)} className="px-4 py-3 bg-gray-700 text-white rounded-xl hover:bg-gray-800 transition font-bold shadow-md hover:shadow-lg flex items-center" title="Scan QR Code">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 5a1 1 0 011-1h2a1 1 0 110 2H4a1 1 0 01-1-1zM3 9a1 1 0 011-1h2a1 1 0 110 2H4a1 1 0 01-1-1zM8 5a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1zM8 9a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1zM13 5a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zM13 9a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zM3 13a1 1 0 011-1h2a1 1 0 110 2H4a1 1 0 01-1-1zM8 13a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1zM13 13a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg>
+                  </button>
                   <button 
-                    onClick={sendMessage}
-                    className={`px-6 py-3 text-white rounded-xl transition font-bold shadow-md ${isSecretMessage ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
+                    onClick={() => handleConnection(() => {})}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-bold shadow-md hover:shadow-lg"
                   >
-                    Send
+                    Connect
                   </button>
                 </div>
-                <div className="flex items-center ml-1">
-                  <input 
-                    id="secret-msg-checkbox" 
-                    type="checkbox" 
-                    checked={isSecretMessage} 
-                    onChange={() => setIsSecretMessage(!isSecretMessage)} 
-                    className="w-4 h-4 text-red-600 bg-gray-100 rounded border-gray-300 focus:ring-red-500 accent-red-600 cursor-pointer" 
-                  />
-                  <label htmlFor="secret-msg-checkbox" className="ml-2 text-xs font-bold text-gray-700 dark:text-gray-300 cursor-pointer flex items-center gap-1">
-                    <span className="text-red-500">🔥</span> Mission Impossible Mode (10s auto-destruct)
-                  </label>
-                </div>
-              </div>
-              
-              <hr className="border-gray-200 dark:border-gray-800" />
-
-              {/* File Upload Area */}
-              <div>
-                <FileUploader
-                  handleChange={setFile}
-                  name="file"
-                  types={["JPG", "PNG", "GIF", "PDF", "ZIP", "MP4", "MOV"]}
-                >
-                  <div 
-                    className={`w-full h-28 border-2 border-dashed rounded-xl flex flex-col justify-center items-center cursor-pointer transition-all ${file ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                  >
-                    {filePreview ? (
-                        <img src={filePreview} alt="Preview" className="h-full object-contain p-2 drop-shadow-md" />
-                    ) : (
-                        <div className="text-center text-gray-500 dark:text-gray-400">
-                          <span className="text-2xl block mb-1">📁</span>
-                          <span className="font-semibold text-sm">Click or Drag & Drop</span>
-                        </div>
-                    )}
-                  </div>
-                </FileUploader>
                 
-                {file && (
-                  <div className="mt-3 p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-sm font-semibold truncate mr-4" title={file.name}>
-                        {file.name} <span className="text-xs text-gray-400 font-normal">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
-                      </p>
-                      <button 
-                        onClick={sendFile}
-                        className="px-5 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition shadow-md"
-                        disabled={transferMode !== null}
-                      >
-                        {transferMode === 'sending' ? 'Sending...' : 'Send File'}
-                      </button>
-                    </div>
-                    
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center">
-                        <input id="burn-checkbox" type="checkbox" checked={burnAfterReading} onChange={() => setBurnAfterReading(!burnAfterReading)} className="w-4 h-4 text-blue-600 bg-gray-100 rounded border-gray-300 focus:ring-blue-500 cursor-pointer" />
-                        <label htmlFor="burn-checkbox" className="ml-2 text-xs font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
-                          Disconnect connection immediately after download
-                        </label>
+                {progress > 0 && progress < 100 && (
+                  <div className="mt-2 mb-2 animate-pulse">
+                      <div className="flex justify-between mb-1">
+                          <span className="text-xs font-bold text-blue-600">{transferMode === 'sending' ? 'Uploading...' : 'Downloading...'}</span>
+                          <span className="text-xs font-bold text-blue-600">{Math.round(progress)}%</span>
                       </div>
-                      
-                      {/* Only show image-specific secret options if it's an image */}
-                      {file.type.startsWith('image/') && (
-                        <div className="flex items-center">
-                          <input 
-                            id="secret-img-checkbox" 
-                            type="checkbox" 
-                            checked={isSecretImage} 
-                            onChange={() => setIsSecretImage(!isSecretImage)} 
-                            className="w-4 h-4 text-purple-600 bg-gray-100 rounded border-gray-300 focus:ring-purple-500 accent-purple-600 cursor-pointer" 
-                          />
-                          <label htmlFor="secret-img-checkbox" className="ml-2 text-xs font-bold text-gray-700 dark:text-gray-300 cursor-pointer flex items-center gap-1">
-                            <span className="text-purple-500">👁️</span> Hold-to-Reveal Anti-Peep Mode
-                          </label>
-                        </div>
-                      )}
-                    </div>
+                      <div className="w-full bg-blue-100 rounded-full h-2 dark:bg-gray-700 overflow-hidden">
+                          <div className="bg-blue-600 h-2 rounded-full transition-all duration-75" style={{ width: `${progress}%` }}></div>
+                      </div>
                   </div>
                 )}
+
+                {/* Chat Log Window */}
+                <div className="h-72 overflow-y-auto bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 text-sm flex flex-col shadow-inner">
+                  {log.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-2 opacity-50">
+                      <span className="text-4xl">💬</span>
+                      <p>No messages yet. Connect to a peer!</p>
+                    </div>
+                  ) : log.map(renderLog)}
+                </div>
+
+                {/* Message Input Area */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <input 
+                      type="text"
+                      placeholder={isSecretMessage ? "Type secret message..." : "Type a message..."}
+                      className={`flex-1 p-3 border rounded-xl focus:outline-none focus:ring-2 transition-all text-sm ${isSecretMessage ? 'border-red-500 bg-red-50 dark:bg-red-900/20 focus:ring-red-500' : 'border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-blue-500'}`}
+                      value={message}
+                      onChange={e => setMessage(e.target.value)}
+                      onKeyPress={e => e.key === 'Enter' && sendMessage()}
+                    />
+                    <button 
+                      onClick={sendMessage}
+                      className={`px-6 py-3 text-white rounded-xl transition font-bold shadow-md ${isSecretMessage ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
+                    >
+                      Send
+                    </button>
+                  </div>
+                  <div className="flex items-center ml-1">
+                    <input 
+                      id="secret-msg-checkbox" 
+                      type="checkbox" 
+                      checked={isSecretMessage} 
+                      onChange={() => setIsSecretMessage(!isSecretMessage)} 
+                      className="w-4 h-4 text-red-600 bg-gray-100 rounded border-gray-300 focus:ring-red-500 accent-red-600 cursor-pointer" 
+                    />
+                    <label htmlFor="secret-msg-checkbox" className="ml-2 text-xs font-bold text-gray-700 dark:text-gray-300 cursor-pointer flex items-center gap-1">
+                      <span className="text-red-500">🔥</span> Mission Impossible Mode (10s auto-destruct)
+                    </label>
+                  </div>
+                </div>
+                
+                <hr className="border-gray-200 dark:border-gray-800" />
+
+                {/* File Upload Area */}
+                <div>
+                  <FileUploader
+                    handleChange={setFile}
+                    name="file"
+                    types={["JPG", "PNG", "GIF", "PDF", "ZIP", "MP4", "MOV"]}
+                  >
+                    <div 
+                      className={`w-full h-28 border-2 border-dashed rounded-xl flex flex-col justify-center items-center cursor-pointer transition-all ${file ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                    >
+                      {filePreview ? (
+                          <img src={filePreview} alt="Preview" className="h-full object-contain p-2 drop-shadow-md" />
+                      ) : (
+                          <div className="text-center text-gray-500 dark:text-gray-400">
+                            <span className="text-2xl block mb-1">📁</span>
+                            <span className="font-semibold text-sm">Click or Drag & Drop</span>
+                          </div>
+                      )}
+                    </div>
+                  </FileUploader>
+                  
+                  {file && (
+                    <div className="mt-3 p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-semibold truncate mr-4" title={file.name}>
+                          {file.name} <span className="text-xs text-gray-400 font-normal">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                        </p>
+                        <button 
+                          onClick={sendFile}
+                          className="px-5 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition shadow-md"
+                          disabled={transferMode !== null}
+                        >
+                          {transferMode === 'sending' ? 'Sending...' : 'Send File'}
+                        </button>
+                      </div>
+                      
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center">
+                          <input id="burn-checkbox" type="checkbox" checked={burnAfterReading} onChange={() => setBurnAfterReading(!burnAfterReading)} className="w-4 h-4 text-blue-600 bg-gray-100 rounded border-gray-300 focus:ring-blue-500 cursor-pointer" />
+                          <label htmlFor="burn-checkbox" className="ml-2 text-xs font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                            Disconnect connection immediately after download
+                          </label>
+                        </div>
+                        
+                        {/* Only show image-specific secret options if it's an image */}
+                        {file.type.startsWith('image/') && (
+                          <div className="flex items-center">
+                            <input 
+                              id="secret-img-checkbox" 
+                              type="checkbox" 
+                              checked={isSecretImage} 
+                              onChange={() => setIsSecretImage(!isSecretImage)} 
+                              className="w-4 h-4 text-purple-600 bg-gray-100 rounded border-gray-300 focus:ring-purple-500 accent-purple-600 cursor-pointer" 
+                            />
+                            <label htmlFor="secret-img-checkbox" className="ml-2 text-xs font-bold text-gray-700 dark:text-gray-300 cursor-pointer flex items-center gap-1">
+                              <span className="text-purple-500">👁️</span> Hold-to-Reveal Anti-Peep Mode
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               </div>
+            )}
 
-            </div>
-          )}
+            {activeTab === 'pdf' && <PdfTool />}
+            {activeTab === 'idphoto' && <IdPhotoTool />}
 
-          {activeTab === 'pdf' && <PdfTool />}
-          {activeTab === 'idphoto' && <IdPhotoTool />}
-
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 

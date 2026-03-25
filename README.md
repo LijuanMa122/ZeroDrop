@@ -45,6 +45,7 @@ ZeroDrop is a secure, serverless browser-based toolkit. It leverages WebRTC for 
     npm run dev
     ```
 3.  **访问应用**：在浏览器中打开命令行提示的地址（通常是 `http://localhost:5173`）即可开始使用。
+手机浏览器访问:确保你的手机和电脑连的是同一个 Wi-Fi,在地址栏输入你刚才在终端里看到的那个 Network 网址（比如 http://192.168.X.X:5173/）。
 
 ## 当前核心功能详解
 
