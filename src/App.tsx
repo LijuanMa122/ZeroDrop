@@ -167,17 +167,7 @@ function App() {
 
   const [showQR, setShowQR] = useState<boolean>(false);
   const [isScanning, setIsScanning] = useState<boolean>(false);
-  const [qrTheme, setQrTheme] = useState({bgColor: '#ffffff', fgColor: '#000000'});
 
-  useEffect(() => {
-    if (showQR) {
-      const isDarkMode = document.documentElement.classList.contains('dark');
-      setQrTheme({
-        bgColor: isDarkMode ? '#1f2937' : '#ffffff',
-        fgColor: isDarkMode ? '#ffffff' : '#000000',
-      });
-    }
-  }, [showQR]);
 
   const peerInstance = useRef<Peer | null>(null);
   const connRef = useRef<DataConnection | null>(null);
