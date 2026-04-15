@@ -18,6 +18,7 @@ ZeroDrop is a secure, serverless browser-based toolkit. It leverages WebRTC for 
 
 ### ✅ 已完成功能 | Completed Features
 * **P2P Transfer**: 高速流式传输 (64KB Chunk size)、文本聊天
+* **QR Connect**: 二维码扫码快速连接
 * **Privacy Matrix**: 
     * 断开即焚 (Disconnect After Download)
     * “碟中谍”消息 (Mission Impossible Mode - 10s auto-destruct)
@@ -31,7 +32,7 @@ ZeroDrop is a secure, serverless browser-based toolkit. It leverages WebRTC for 
 * **File transfer**: 跨网段文件传输 File transfer across network segments
 * **secondary encryption** ：应用层二次加密 Application layer secondary encryption
 * **Interactive screenshot reversal**：交互式反截图 
-* **QR Connect**: 二维码扫码快速连接
+
 
 
 ## 如何使用

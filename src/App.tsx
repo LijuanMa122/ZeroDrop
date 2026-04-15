@@ -167,7 +167,14 @@ function App() {
 
   const [showQR, setShowQR] = useState<boolean>(false);
   const [isScanning, setIsScanning] = useState<boolean>(false);
+  
+  // Real connection state to fix UI sync issues
+  const [isConnected, setIsConnected] = useState<boolean>(false);
 
+  // Speed test states
+  const [isTestingSpeed, setIsTestingSpeed] = useState<boolean>(false);
+  const [networkSpeed, setNetworkSpeed] = useState<{rtt: number, speedMBps: number} | null>(null);
+  const speedTestStartRef = useRef<number>(0);
 
   const peerInstance = useRef<Peer | null>(null);
   const connRef = useRef<DataConnection | null>(null);
@@ -204,26 +211,32 @@ function App() {
 
   useEffect(() => {
     const peer = new Peer({
-  config: {
-    'iceServers': [
-      { urls: 'stun:stun.l.google.com:19302' }, 
-      { urls: 'stun:stun1.l.google.com:19302' }, 
-      { urls: 'stun:global.stun.twilio.com:3478' } 
-    ]
-  }
-});
+      config: {
+        'iceServers': [
+          { urls: 'stun:stun.l.google.com:19302' }, 
+          { urls: 'stun:stun1.l.google.com:19302' }, 
+          { urls: 'stun:global.stun.twilio.com:3478' } 
+        ]
+      }
+    });
 
     peer.on('open', (id) => setMyId(id));
 
     peer.on('connection', (conn) => {
       connRef.current = conn;
-      setLog(prev => [...prev, { type: 'system', content: `Connected to ${conn.peer}` }]);
       
+      // Crucial fix: wait for the open event before marking as connected
+      conn.on('open', () => {
+        setIsConnected(true);
+        setLog(prev => [...prev, { type: 'system', content: `Connected to ${conn.peer}` }]);
+      });
+
       conn.on('data', (data) => {
         if (handleDataRef.current) handleDataRef.current(data, conn);
       });
 
       conn.on('close', () => {
+        setIsConnected(false);
         setLog(prev => [...prev, { type: 'system', content: 'Connection closed.' }]);
         connRef.current = null;
       });
@@ -236,6 +249,27 @@ function App() {
   }, []);
 
   const handleData = (data: any, conn: DataConnection) => {
+    if (data.type === 'speed-test-ping') {
+      // Immediately echo back a pong signal
+      conn.send({ type: 'speed-test-pong' });
+      return;
+    } 
+    else if (data.type === 'speed-test-pong') {
+      // Calculate round trip time and estimated speed upon receiving pong
+      const duration = performance.now() - speedTestStartRef.current; // Total RTT in ms
+      const rtt = duration;
+      // Payload size is 1MB. Rough one-way time is duration / 2.
+      const speedMBps = 1 / ((duration / 2) / 1000); 
+      
+      setNetworkSpeed({ rtt, speedMBps });
+      setIsTestingSpeed(false);
+      setLog(prev => [...prev, { 
+        type: 'system', 
+        content: `⚡ Network Test: RTT ${rtt.toFixed(0)}ms, Est. Speed: ${speedMBps.toFixed(2)} MB/s` 
+      }]);
+      return;
+    }
+
     if (data.type === 'file-meta') {
       setIncomingFileMeta(data.payload);
       receiveBufferRef.current = new Array(data.payload.chunkCount);
@@ -252,7 +286,7 @@ function App() {
       const currentCount = receivedCountRef.current;
       const totalCount = incomingFileMeta.chunkCount;
 
-      if (currentCount % 20 === 0 || currentCount === totalCount) {
+      if (currentCount % 50 === 0 || currentCount === totalCount) {
          setProgress((currentCount / totalCount) * 100);
       }
 
@@ -271,7 +305,10 @@ function App() {
         conn.send({ type: 'file-received-ack' });
         
         if (incomingFileMeta.burn && !incomingFileMeta.isSecretImage) {
-          setTimeout(() => conn.close(), 500);
+          setTimeout(() => {
+            conn.close();
+            setIsConnected(false);
+          }, 500);
         }
         
         setIncomingFileMeta(null);
@@ -289,6 +326,7 @@ function App() {
             setTransferMode(null);
             if (burnAfterReading && !isSecretImage) {
                conn.close();
+               setIsConnected(false);
             }
         }, 1500);
     } 
@@ -301,29 +339,35 @@ function App() {
   };
 
   const handleConnection = (callback: () => void) => {
-    if (connRef.current && connRef.current.open) {
+    // If already properly connected, execute callback directly
+    if (isConnected && connRef.current && connRef.current.open) {
       callback();
-    } else {
-      if (!remoteId) return alert("Please enter a friend's ID.");
-      const conn = peerInstance.current!.connect(remoteId);
-      if (!conn) {
-        alert("Connection failed.");
-        return;
-      }
-      connRef.current = conn;
-      
-      conn.on('open', () => {
-        setLog(prev => [...prev, { type: 'system', content: `Connected to ${conn.peer}` }]);
-        conn.on('data', (data) => {
-          if (handleDataRef.current) handleDataRef.current(data, conn);
-        });
-        conn.on('close', () => {
-          setLog(prev => [...prev, { type: 'system', content: 'Connection closed.' }]);
-          connRef.current = null;
-        });
-        callback();
-      });
+      return;
     }
+
+    if (!remoteId) return alert("Please enter a friend's ID.");
+    
+    setLog(prev => [...prev, { type: 'system', content: 'Connecting over internet, please wait...' }]);
+    const conn = peerInstance.current!.connect(remoteId);
+    if (!conn) {
+      alert("Connection failed.");
+      return;
+    }
+    connRef.current = conn;
+    
+    conn.on('open', () => {
+      setIsConnected(true);
+      setLog(prev => [...prev, { type: 'system', content: `Connected to ${conn.peer}` }]);
+      conn.on('data', (data) => {
+        if (handleDataRef.current) handleDataRef.current(data, conn);
+      });
+      conn.on('close', () => {
+        setIsConnected(false);
+        setLog(prev => [...prev, { type: 'system', content: 'Connection closed.' }]);
+        connRef.current = null;
+      });
+      callback();
+    });
   };
 
   const sendMessage = () => {
@@ -341,8 +385,26 @@ function App() {
     });
   };
 
+  const testNetworkSpeed = () => {
+    if (!isConnected || !connRef.current || !connRef.current.open) {
+      setLog(prev => [...prev, { type: 'system', content: 'Not connected to a peer.' }]);
+      return;
+    }
+
+    setIsTestingSpeed(true);
+    setNetworkSpeed(null);
+    setLog(prev => [...prev, { type: 'system', content: 'Testing network speed (Sending 1MB dummy data)...' }]);
+
+    // Construct 1MB dummy payload
+    const dummyData = new Uint8Array(1024 * 1024);
+    
+    speedTestStartRef.current = performance.now();
+    connRef.current.send({ type: 'speed-test-ping', payload: dummyData });
+  };
+
   const sendFile = async () => {
-    if (!file || !connRef.current || !connRef.current.open) return;
+    // Use isConnected as the primary gatekeeper to prevent silent drops
+    if (!file || !isConnected || !connRef.current) return;
 
     setTransferMode('sending');
     setLog(prev => [...prev, { type: 'system', content: `Sending file: ${file.name} ...` }]);
@@ -363,15 +425,26 @@ function App() {
         },
       });
 
+      // Get underlying RTCDataChannel instance
+      const dataChannel = connRef.current.dataChannel;
+      // Set buffer high water mark to 1MB
+      const BUFFER_THRESHOLD = 1024 * 1024;
+
       for (let i = 0; i < totalChunks; i++) {
         const offset = i * CHUNK_SIZE;
         const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
         
+        // Backpressure control: throttle loop if buffer exceeds threshold
+        while (dataChannel && dataChannel.bufferedAmount > BUFFER_THRESHOLD) {
+           await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        
         connRef.current.send({ type: 'chunk', payload: chunk, index: i });
 
-        if (i % 20 === 0 || i === totalChunks - 1) {
+        // Throttle React render frequency to prevent main thread blocking
+        if (i % 50 === 0 || i === totalChunks - 1) {
             setProgress(((i + 1) / totalChunks) * 100);
-            await new Promise(resolve => setTimeout(resolve, 2)); 
+            await new Promise(resolve => setTimeout(resolve, 0)); 
         }
       }
       
@@ -383,7 +456,7 @@ function App() {
       setTransferMode(null);
     }
   };
-
+    
   const renderLog = (item: any, i: number) => {
     switch(item.type) {
       case 'system': 
@@ -425,15 +498,14 @@ function App() {
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 backdrop-blur-sm" onClick={() => setShowQR(false)}>
           <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-center mb-4 text-gray-800 dark:text-gray-200">Scan to Connect</h3>
-            {/* 修改后：使用绝对锐利的 Canvas，开启最高容错率 */}
             <QRCodeCanvas
               value={myId}
-              size={300}        // 稍微放大尺寸，增加物理像素
+              size={300}        
               bgColor={"#ffffff"} 
               fgColor={"#000000"} 
-              level={"H"}       // 💡 核心修复：H级最高容错率 (30%)，无视屏幕反光
-              includeMargin={true} // 强制保留静区
-              className="border-4 border-white shadow-sm" // 去掉 rounded-lg 防止裁剪边缘
+              level={"H"}       
+              includeMargin={true} 
+              className="border-4 border-white shadow-sm" 
             />
             <p className="mt-4 text-xs text-gray-500 dark:text-gray-400 text-center break-all max-w-xs">{myId}</p>
           </div>
@@ -491,7 +563,30 @@ function App() {
                     Connect
                   </button>
                 </div>
-                
+
+                {/* Network Speed Test UI */}
+                {isConnected && (
+                  <div className="flex items-center justify-between bg-gray-100 dark:bg-gray-800 p-3 rounded-xl shadow-inner mt-2 animate-fade-in">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-gray-500">Connection Status</span>
+                      {networkSpeed ? (
+                        <span className={`text-sm font-mono ${networkSpeed.speedMBps > 5 ? 'text-green-500' : 'text-yellow-500'}`}>
+                          {networkSpeed.speedMBps > 5 ? '🟢 Direct (P2P)' : '🟡 Relayed (TURN)'} - {networkSpeed.speedMBps.toFixed(2)} MB/s
+                        </span>
+                      ) : (
+                        <span className="text-sm font-mono text-gray-400">Untested</span>
+                      )}
+                    </div>
+                    <button 
+                      onClick={testNetworkSpeed}
+                      disabled={isTestingSpeed || transferMode !== null}
+                      className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-lg text-sm font-bold transition disabled:opacity-50"
+                    >
+                      {isTestingSpeed ? 'Testing...' : 'Test Speed'}
+                    </button>
+                  </div>
+                )}                              
+
                 {progress > 0 && progress < 100 && (
                   <div className="mt-2 mb-2 animate-pulse">
                       <div className="flex justify-between mb-1">
@@ -550,41 +645,45 @@ function App() {
 
                 {/* File Upload Area */}
                 <div>
-                  <FileUploader
-                    handleChange={(f: File | File[]) => {
-                      if (Array.isArray(f)) {
-                        setFile(f[0]); // 如果是数组，取第一个
-                      } else {
-                       setFile(f);    // 如果是单个文件，直接存
-                      }
-                    }}
-                    name="file"
-                    types={["JPG", "PNG", "GIF", "PDF", "ZIP", "MP4", "MOV"]}
-                  >
+                  {!file ? (
+                    // State 1: No file selected, show uploader component
                     <FileUploader
-  handleChange={(f: File | File[]) => {
-    if (Array.isArray(f)) {
-      setFile(f[0]); // 如果是数组，取第一个
-    } else {
-      setFile(f);    // 如果是单个文件，直接存
-    }
-  }}
-  name="file"
-  types={["JPG", "PNG", "GIF", "PDF", "ZIP", "MP4", "MOV"]}
-></FileUploader>
-                    <div 
-                      className={`w-full h-28 border-2 border-dashed rounded-xl flex flex-col justify-center items-center cursor-pointer transition-all ${file ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                      handleChange={(f: File | File[]) => {
+                        if (Array.isArray(f)) {
+                          setFile(f[0]);
+                        } else {
+                          setFile(f);
+                        }
+                      }}
+                      name="file"
+                      types={["JPG", "PNG", "GIF", "PDF", "ZIP", "MP4", "MOV"]}
                     >
+                      <div className="w-full h-28 border-2 border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl flex flex-col justify-center items-center cursor-pointer transition-all">
+                        <div className="text-center text-gray-500 dark:text-gray-400">
+                          <span className="text-2xl block mb-1">📁</span>
+                          <span className="font-semibold text-sm">Click or Drag & Drop</span>
+                        </div>
+                      </div>
+                    </FileUploader>
+                  ) : (
+                    // State 2: File selected, render static preview to prevent phantom clicks
+                    <div className="w-full h-28 border-2 border-solid border-blue-500 bg-blue-50 dark:bg-blue-900/20 rounded-xl flex flex-col justify-center items-center relative animate-fade-in">
                       {filePreview ? (
                           <img src={filePreview} alt="Preview" className="h-full object-contain p-2 drop-shadow-md" />
                       ) : (
-                          <div className="text-center text-gray-500 dark:text-gray-400">
-                            <span className="text-2xl block mb-1">📁</span>
-                            <span className="font-semibold text-sm">Click or Drag & Drop</span>
-                          </div>
+                          <div className="text-4xl">📄</div>
                       )}
+                      
+                      {/* Cancel file selection button */}
+                      <button 
+                        onClick={() => setFile(null)}
+                        className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-7 h-7 flex items-center justify-center text-sm hover:bg-red-600 shadow-lg font-bold"
+                        title="Remove file"
+                      >
+                        ✕
+                      </button>
                     </div>
-                  </FileUploader>
+                  )}
                   
                   {file && (
                     <div className="mt-3 p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
@@ -594,8 +693,8 @@ function App() {
                         </p>
                         <button 
                           onClick={sendFile}
-                          className="px-5 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition shadow-md"
-                          disabled={transferMode !== null}
+                          className="px-5 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition shadow-md disabled:opacity-50"
+                          disabled={transferMode !== null || !isConnected}
                         >
                           {transferMode === 'sending' ? 'Sending...' : 'Send File'}
                         </button>
