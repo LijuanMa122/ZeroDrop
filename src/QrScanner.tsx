@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { useEffect, useRef, useState } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
 
 interface QrScannerProps {
   onScanSuccess: (decodedText: string) => void;
@@ -7,30 +7,49 @@ interface QrScannerProps {
 }
 
 const QrScanner = ({ onScanSuccess, onCancel }: QrScannerProps) => {
+  const [errorMsg, setErrorMsg] = useState<string>("");
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+
   useEffect(() => {
-    // 初始化扫描器，去掉了之前限制过严的配置参数
-    const scanner = new Html5QrcodeScanner(
-      "qr-reader",
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 250 }
-      },
-      false
-    );
+    // 使用底层的 Html5Qrcode 核心类，而非带有 UI 的 Scanner 类
+    const html5QrCode = new Html5Qrcode("qr-reader");
+    scannerRef.current = html5QrCode;
 
-    scanner.render(
-      (decodedText) => {
-        scanner.clear().then(() => {
-          onScanSuccess(decodedText);
-        }).catch(console.error);
-      },
-      (_error) => {
-  // Ignore standard scanning errors
+const startScanner = async () => {
+      try {
+        await html5QrCode.start(
+          // 核心修改：只保留 facingMode，彻底删掉 width 和 height 的任何配置
+          { facingMode: "environment" }, 
+          {
+            fps: 10, 
+            qrbox: { width: 250, height: 250 },
+            disableFlip: false 
+          },
+          (decodedText) => {
+            if (html5QrCode.isScanning) {
+              html5QrCode.stop().then(() => {
+                onScanSuccess(decodedText);
+              }).catch(console.error);
+            }
+          },
+          (_errorMessage) => {
+            // 忽略逐帧解析失败的内部报错
+          }
+        );
+      } catch (err: any) {
+        setErrorMsg(err?.message || "Camera initialization failed.");
+        console.error("Camera start error:", err);
       }
-    );
+    };
 
+
+    startScanner();
+
+    // 组件卸载时清理物理硬件占用
     return () => {
-      scanner.clear().catch(console.error);
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().catch(console.error);
+      }
     };
   }, [onScanSuccess]);
 
@@ -41,11 +60,17 @@ const QrScanner = ({ onScanSuccess, onCancel }: QrScannerProps) => {
           Scan Friend's QR Code
         </h3>
         
-        {}
+        {/* 视频流容器 */}
         <div 
           id="qr-reader" 
-          className="w-full rounded-xl overflow-hidden border border-gray-300 dark:border-gray-600 bg-white"
-        ></div>
+          className="w-full min-h-[250px] rounded-xl overflow-hidden border border-gray-300 dark:border-gray-600 bg-black flex items-center justify-center"
+        >
+          {errorMsg && (
+            <div className="text-red-500 text-sm text-center p-4">
+              {errorMsg}
+            </div>
+          )}
+        </div>
         
         <button 
           onClick={onCancel} 

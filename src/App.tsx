@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { Peer } from 'peerjs';
 import type { DataConnection } from 'peerjs';
 import { FileUploader } from "react-drag-drop-files";
-import { QRCodeSVG } from 'qrcode.react';
+import { QRCodeCanvas } from 'qrcode.react';
 import PdfTool from './PdfTool';
 import IdPhotoTool from './IdPhotoTool';
 
@@ -435,13 +435,15 @@ function App() {
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 backdrop-blur-sm" onClick={() => setShowQR(false)}>
           <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-center mb-4 text-gray-800 dark:text-gray-200">Scan to Connect</h3>
-            <QRCodeSVG
+            {/* 修改后：使用绝对锐利的 Canvas，开启最高容错率 */}
+            <QRCodeCanvas
               value={myId}
-              size={256}
-              bgColor={qrTheme.bgColor}
-              fgColor={qrTheme.fgColor}
-              level={"L"}
-              includeMargin={true}
+              size={300}        // 稍微放大尺寸，增加物理像素
+              bgColor={"#ffffff"} 
+              fgColor={"#000000"} 
+              level={"H"}       // 💡 核心修复：H级最高容错率 (30%)，无视屏幕反光
+              includeMargin={true} // 强制保留静区
+              className="border-4 border-white shadow-sm" // 去掉 rounded-lg 防止裁剪边缘
             />
             <p className="mt-4 text-xs text-gray-500 dark:text-gray-400 text-center break-all max-w-xs">{myId}</p>
           </div>
