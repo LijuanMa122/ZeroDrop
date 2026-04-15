@@ -249,27 +249,21 @@ function App() {
   }, []);
 
   const handleData = (data: any, conn: DataConnection) => {
-    if (data.type === 'speed-test-ping') {
-      // Immediately echo back a pong signal
-      conn.send({ type: 'speed-test-pong' });
-      return;
-    } 
-    else if (data.type === 'speed-test-pong') {
-      // Calculate round trip time and estimated speed upon receiving pong
-      const duration = performance.now() - speedTestStartRef.current; // Total RTT in ms
-      const rtt = duration;
-      // Payload size is 1MB. Rough one-way time is duration / 2.
-      const speedMBps = 1 / ((duration / 2) / 1000); 
-      
-      setNetworkSpeed({ rtt, speedMBps });
-      setIsTestingSpeed(false);
-      setLog(prev => [...prev, { 
-        type: 'system', 
-        content: `⚡ Network Test: RTT ${rtt.toFixed(0)}ms, Est. Speed: ${speedMBps.toFixed(2)} MB/s` 
-      }]);
-      return;
+    // --- 独立测速响应块 ---
+    if (data && typeof data === 'object') {
+      if (data.type === 'speed-test-ping') {
+        conn.send({ type: 'speed-test-pong' });
+        return; // 处理完立刻返回，不进入后续逻辑
+      } 
+      if (data.type === 'speed-test-pong') {
+        const duration = performance.now() - speedTestStartRef.current;
+        const speedMBps = 1 / ((duration / 2) / 1000); 
+        setNetworkSpeed({ rtt: duration, speedMBps });
+        setIsTestingSpeed(false);
+        setLog(prev => [...prev, { type: 'system', content: `⚡ Speed: ${speedMBps.toFixed(2)} MB/s` }]);
+        return;
+      }
     }
-
     if (data.type === 'file-meta') {
       setIncomingFileMeta(data.payload);
       receiveBufferRef.current = new Array(data.payload.chunkCount);
